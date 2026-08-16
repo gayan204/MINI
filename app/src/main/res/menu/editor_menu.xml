@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_undo"
+        android:title="Undo"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_redo"
+        android:title="Redo"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_wrap"
+        android:title="Toggle Wrap"
+        android:checkable="true"
+        android:checked="true"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_search"
+        android:title="Search"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_replace"
+        android:title="Replace"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_preview_markdown"
+        android:title="Preview Markdown"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_read_only"
+        android:title="Read-Only Mode"
+        android:checkable="true"
+        android:checked="false"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_save_version"
+        android:title="Save as Version"
+        app:showAsAction="never" />
+</menu>

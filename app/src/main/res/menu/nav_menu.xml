@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_new"
+            android:title="New File" />
+        <item
+            android:id="@+id/nav_open"
+            android:title="Open File" />
+        <item
+            android:id="@+id/nav_save"
+            android:title="Save File" />
+        <item
+            android:id="@+id/nav_save_as"
+            android:title="Save As..." />
+    </group>
+    
+    <item android:title="History">
+        <menu>
+            <item
+                android:id="@+id/nav_history"
+                android:title="Version History" />
+        </menu>
+    </item>
+</menu>

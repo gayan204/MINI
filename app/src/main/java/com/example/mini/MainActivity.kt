@@ -1,0 +1,265 @@
+package com.example.mini
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.ActionBarDrawerToggle
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.lifecycle.lifecycleScope
+import com.example.mini.editor.AutoSaveManager
+import com.example.mini.editor.MarkdownPreviewActivity
+import com.example.mini.editor.SyntaxHighlighter
+import com.example.mini.editor.UndoRedoManager
+import com.example.mini.file.FileManager
+import com.example.mini.vcs.VersionControlManager
+import com.example.mini.vcs.VersionHistoryActivity
+import com.google.android.material.navigation.NavigationView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var editor: EditText
+    private lateinit var undoRedoManager: UndoRedoManager
+    private lateinit var autoSaveManager: AutoSaveManager
+    private lateinit var fileManager: FileManager
+    private lateinit var versionControlManager: VersionControlManager
+    
+    private var currentFileUri: Uri? = null
+
+    private val openFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let {
+            currentFileUri = it
+            lifecycleScope.launch {
+                val content = withContext(Dispatchers.IO) { fileManager.readFile(it) }
+                editor.setText(content)
+                Toast.makeText(this@MainActivity, "File opened", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val saveFileLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
+        uri?.let {
+            currentFileUri = it
+            lifecycleScope.launch {
+                val textToSave = editor.text.toString()
+                withContext(Dispatchers.IO) { fileManager.saveFile(it, textToSave) }
+                Toast.makeText(this@MainActivity, "File saved", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        val toolbar: Toolbar = findViewById(R.id.toolbar)
+        setSupportActionBar(toolbar)
+
+        drawerLayout = findViewById(R.id.drawer_layout)
+        val navView: NavigationView = findViewById(R.id.nav_view)
+        editor = findViewById(R.id.editor)
+
+        val toggle = ActionBarDrawerToggle(
+            this, drawerLayout, toolbar,
+            R.string.navigation_drawer_open, R.string.navigation_drawer_close
+        )
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+
+        navView.setNavigationItemSelectedListener(this)
+        
+        // Setup Editor Features
+        undoRedoManager = UndoRedoManager(editor)
+        editor.addTextChangedListener(undoRedoManager)
+        editor.addTextChangedListener(SyntaxHighlighter())
+        
+        fileManager = FileManager(this)
+        versionControlManager = VersionControlManager(this)
+        autoSaveManager = AutoSaveManager(this, editor)
+        autoSaveManager.recoverStateIfAvailable()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        autoSaveManager.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        autoSaveManager.stop()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.editor_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_undo -> {
+                undoRedoManager.undo()
+                true
+            }
+            R.id.action_redo -> {
+                undoRedoManager.redo()
+                true
+            }
+            R.id.action_wrap -> {
+                item.isChecked = !item.isChecked
+                if (item.isChecked) {
+                    editor.setHorizontallyScrolling(false)
+                } else {
+                    editor.setHorizontallyScrolling(true)
+                }
+                true
+            }
+            R.id.action_search -> {
+                showSearchDialog()
+                true
+            }
+            R.id.action_replace -> {
+                showReplaceDialog()
+                true
+            }
+            R.id.action_preview_markdown -> {
+                val intent = Intent(this, MarkdownPreviewActivity::class.java).apply {
+                    putExtra("MARKDOWN_TEXT", editor.text.toString())
+                }
+                startActivity(intent)
+                true
+            }
+            R.id.action_read_only -> {
+                item.isChecked = !item.isChecked
+                editor.isEnabled = !item.isChecked
+                true
+            }
+            R.id.action_save_version -> {
+                if (currentFileUri != null) {
+                    showSaveVersionDialog()
+                } else {
+                    Toast.makeText(this, "Save the file first before versioning.", Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun showSaveVersionDialog() {
+        val input = EditText(this).apply { hint = "Version Name (e.g., v1.0)" }
+        AlertDialog.Builder(this)
+            .setTitle("Save Version")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val versionName = input.text.toString()
+                if (versionName.isNotBlank() && currentFileUri != null) {
+                    versionControlManager.saveVersion(currentFileUri!!, editor.text.toString(), versionName)
+                    Toast.makeText(this, "Version saved", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showSearchDialog() {
+        val input = EditText(this)
+        AlertDialog.Builder(this)
+            .setTitle("Search")
+            .setView(input)
+            .setPositiveButton("Find") { _, _ ->
+                val query = input.text.toString()
+                val text = editor.text.toString()
+                val index = text.indexOf(query, ignoreCase = true)
+                if (index != -1) {
+                    editor.setSelection(index, index + query.length)
+                    editor.requestFocus()
+                } else {
+                    Toast.makeText(this, "Not found", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showReplaceDialog() {
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        val searchInput = EditText(this).apply { hint = "Search" }
+        val replaceInput = EditText(this).apply { hint = "Replace with" }
+        layout.addView(searchInput)
+        layout.addView(replaceInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Replace")
+            .setView(layout)
+            .setPositiveButton("Replace All") { _, _ ->
+                val query = searchInput.text.toString()
+                val replacement = replaceInput.text.toString()
+                val text = editor.text.toString()
+                val newText = text.replace(query, replacement, ignoreCase = true)
+                editor.setText(newText)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_new -> {
+                editor.setText("")
+                currentFileUri = null
+                Toast.makeText(this, "New file created", Toast.LENGTH_SHORT).show()
+            }
+            R.id.nav_open -> {
+                openFileLauncher.launch(arrayOf("text/plain", "*/*"))
+            }
+            R.id.nav_save -> {
+                if (currentFileUri != null) {
+                    lifecycleScope.launch {
+                        val textToSave = editor.text.toString()
+                        withContext(Dispatchers.IO) { fileManager.saveFile(currentFileUri!!, textToSave) }
+                        Toast.makeText(this@MainActivity, "File saved", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    saveFileLauncher.launch("Untitled.txt")
+                }
+            }
+            R.id.nav_save_as -> {
+                saveFileLauncher.launch("Untitled.txt")
+            }
+            R.id.nav_history -> {
+                if (currentFileUri != null) {
+                    val intent = Intent(this, VersionHistoryActivity::class.java).apply {
+                        putExtra("FILE_URI", currentFileUri.toString())
+                    }
+                    startActivity(intent)
+                } else {
+                    Toast.makeText(this, "Save the file first before viewing history.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        drawerLayout.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    override fun onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START)
+        } else {
+            super.onBackPressed()
+        }
+    }
+}
