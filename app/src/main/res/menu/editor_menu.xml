@@ -37,4 +37,8 @@
         android:id="@+id/action_save_version"
         android:title="Save as Version"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_file_type"
+        android:title="File Type"
+        app:showAsAction="never" />
 </menu>

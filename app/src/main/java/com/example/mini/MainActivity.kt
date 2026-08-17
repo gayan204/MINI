@@ -36,12 +36,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var autoSaveManager: AutoSaveManager
     private lateinit var fileManager: FileManager
     private lateinit var versionControlManager: VersionControlManager
-    
+    private lateinit var syntaxHighlighter: SyntaxHighlighter
+
     private var currentFileUri: Uri? = null
+    private var currentFileExtension: String = "" // tracks active file type mode
 
     private val openFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
             currentFileUri = it
+            // Update syntax highlighting based on opened file's extension
+            val ext = it.lastPathSegment?.substringAfterLast('.', "") ?: ""
+            currentFileExtension = ext
+            syntaxHighlighter.setFileExtension(ext)
             lifecycleScope.launch {
                 val content = withContext(Dispatchers.IO) { fileManager.readFile(it) }
                 editor.setText(content)
@@ -53,6 +59,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val saveFileLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
         uri?.let {
             currentFileUri = it
+            // Update syntax highlighting based on saved file's extension
+            val ext = it.lastPathSegment?.substringAfterLast('.', "") ?: ""
+            currentFileExtension = ext
+            syntaxHighlighter.setFileExtension(ext)
             lifecycleScope.launch {
                 val textToSave = editor.text.toString()
                 withContext(Dispatchers.IO) { fileManager.saveFile(it, textToSave) }
@@ -93,8 +103,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         
         // Setup Editor Features
         undoRedoManager = UndoRedoManager(editor)
+        syntaxHighlighter = SyntaxHighlighter() // No extension = plain text, no keyword highlight
         editor.addTextChangedListener(undoRedoManager)
-        editor.addTextChangedListener(SyntaxHighlighter())
+        editor.addTextChangedListener(syntaxHighlighter)
         
         fileManager = FileManager(this)
         versionControlManager = VersionControlManager(this)
@@ -164,8 +175,33 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 }
                 true
             }
+            R.id.action_file_type -> {
+                showFileTypeDialog()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun showFileTypeDialog() {
+        val types = arrayOf("Plain Text (.txt)", "Kotlin (.kt)", "Markdown (.md)")
+        val extensions = arrayOf("", "kt", "md")
+        val currentIndex = extensions.indexOf(currentFileExtension).coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle("File Type")
+            .setSingleChoiceItems(types, currentIndex) { dialog, which ->
+                currentFileExtension = extensions[which]
+                syntaxHighlighter.setFileExtension(currentFileExtension)
+                // Re-trigger highlighting by resetting text
+                val text = editor.text
+                editor.text = text
+                editor.setSelection(text.length)
+                Toast.makeText(this, "${types[which]} mode applied", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showSaveVersionDialog() {
