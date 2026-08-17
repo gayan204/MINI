@@ -24,6 +24,9 @@ class SyntaxHighlighter(private var fileExtension: String = "") : TextWatcher {
     )
 
     private val keywordPattern: Pattern
+    private val stringPattern: Pattern
+    private val numberPattern: Pattern
+    private val commentPattern: Pattern
     private val markdownHeaderPattern: Pattern
     private val markdownBoldItalicPattern: Pattern
     private val markdownListPattern: Pattern
@@ -32,6 +35,9 @@ class SyntaxHighlighter(private var fileExtension: String = "") : TextWatcher {
     init {
         val keywordRegex = "\\b(" + keywords.joinToString("|") + ")\\b"
         keywordPattern = Pattern.compile(keywordRegex)
+        stringPattern = Pattern.compile("\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'")
+        numberPattern = Pattern.compile("\\b\\d+(\\.\\d+)?\\b")
+        commentPattern = Pattern.compile("//.*|/\\*[\\s\\S]*?\\*/")
         markdownHeaderPattern = Pattern.compile("^(#{1,6})\\s.*$", Pattern.MULTILINE)
         markdownBoldItalicPattern = Pattern.compile("(\\*\\*|__)(.*?)\\1|(\\*|_)(.*?)\\3")
         markdownListPattern = Pattern.compile("^(\\s*)([-*+]|\\d+\\.)\\s.+$", Pattern.MULTILINE)
@@ -81,6 +87,39 @@ class SyntaxHighlighter(private var fileExtension: String = "") : TextWatcher {
                 ForegroundColorSpan(Color.parseColor("#CC7832")), // Orange for keywords
                 matcher.start(),
                 matcher.end(),
+                0
+            )
+        }
+
+        // Apply Numbers
+        val numberMatcher = numberPattern.matcher(s)
+        while (numberMatcher.find()) {
+            s.setSpan(
+                ForegroundColorSpan(Color.parseColor("#6897BB")), // Blue for numbers
+                numberMatcher.start(),
+                numberMatcher.end(),
+                0
+            )
+        }
+
+        // Apply Strings
+        val stringMatcher = stringPattern.matcher(s)
+        while (stringMatcher.find()) {
+            s.setSpan(
+                ForegroundColorSpan(Color.parseColor("#6A8759")), // Green for strings
+                stringMatcher.start(),
+                stringMatcher.end(),
+                0
+            )
+        }
+
+        // Apply Comments
+        val commentMatcher = commentPattern.matcher(s)
+        while (commentMatcher.find()) {
+            s.setSpan(
+                ForegroundColorSpan(Color.parseColor("#808080")), // Gray for comments
+                commentMatcher.start(),
+                commentMatcher.end(),
                 0
             )
         }
