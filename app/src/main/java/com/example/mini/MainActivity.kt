@@ -8,6 +8,7 @@ import android.view.MenuItem
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AlertDialog
@@ -44,8 +45,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val openFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
             currentFileUri = it
-            // Update syntax highlighting based on opened file's extension
-            val ext = it.lastPathSegment?.substringAfterLast('.', "") ?: ""
+            // Fix: Decode URI path properly to extract real file extension
+            val ext = extractExtension(it)
             currentFileExtension = ext
             syntaxHighlighter.setFileExtension(ext)
             lifecycleScope.launch {
@@ -59,8 +60,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val saveFileLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
         uri?.let {
             currentFileUri = it
-            // Update syntax highlighting based on saved file's extension
-            val ext = it.lastPathSegment?.substringAfterLast('.', "") ?: ""
+            // Fix: Decode URI path properly to extract real file extension
+            val ext = extractExtension(it)
             currentFileExtension = ext
             syntaxHighlighter.setFileExtension(ext)
             lifecycleScope.launch {
@@ -100,17 +101,30 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         toggle.syncState()
 
         navView.setNavigationItemSelectedListener(this)
-        
+
         // Setup Editor Features
         undoRedoManager = UndoRedoManager(editor)
         syntaxHighlighter = SyntaxHighlighter() // No extension = plain text, no keyword highlight
         editor.addTextChangedListener(undoRedoManager)
         editor.addTextChangedListener(syntaxHighlighter)
-        
+
         fileManager = FileManager(this)
         versionControlManager = VersionControlManager(this)
-        autoSaveManager = AutoSaveManager(this, editor)
+        // Fix: Pass lifecycleScope to prevent coroutine leak
+        autoSaveManager = AutoSaveManager(this, editor, lifecycleScope)
         autoSaveManager.recoverStateIfAvailable()
+
+        // Fix: Use OnBackPressedCallback instead of deprecated onBackPressed()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    drawerLayout.closeDrawer(GravityCompat.START)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 
     override fun onStart() {
@@ -140,11 +154,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
             R.id.action_wrap -> {
                 item.isChecked = !item.isChecked
-                if (item.isChecked) {
-                    editor.setHorizontallyScrolling(false)
-                } else {
-                    editor.setHorizontallyScrolling(true)
-                }
+                editor.setHorizontallyScrolling(!item.isChecked)
                 true
             }
             R.id.action_search -> {
@@ -183,6 +193,16 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
+    /**
+     * Fix: Properly decode content URI to extract file extension.
+     * content:// URIs have encoded paths like "primary:Documents/file.kt"
+     */
+    private fun extractExtension(uri: Uri): String {
+        val path = uri.lastPathSegment ?: return ""
+        val decoded = Uri.decode(path)
+        return decoded.substringAfterLast('.', "").lowercase()
+    }
+
     private fun showFileTypeDialog() {
         val types = arrayOf("Plain Text (.txt)", "Kotlin (.kt)", "Markdown (.md)")
         val extensions = arrayOf("", "kt", "md")
@@ -193,10 +213,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             .setSingleChoiceItems(types, currentIndex) { dialog, which ->
                 currentFileExtension = extensions[which]
                 syntaxHighlighter.setFileExtension(currentFileExtension)
-                // Re-trigger highlighting by resetting text
-                val text = editor.text
-                editor.text = text
-                editor.setSelection(text.length)
+                // Fix: Directly trigger re-highlight via afterTextChanged instead of re-assigning text
+                syntaxHighlighter.rehighlight(editor.text)
                 Toast.makeText(this, "${types[which]} mode applied", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
@@ -212,8 +230,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             .setPositiveButton("Save") { _, _ ->
                 val versionName = input.text.toString()
                 if (versionName.isNotBlank() && currentFileUri != null) {
-                    versionControlManager.saveVersion(currentFileUri!!, editor.text.toString(), versionName)
-                    Toast.makeText(this, "Version saved", Toast.LENGTH_SHORT).show()
+                    // Fix: Run DB operation on IO thread to avoid ANR
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) {
+                            versionControlManager.saveVersion(currentFileUri!!, editor.text.toString(), versionName)
+                        }
+                        Toast.makeText(this@MainActivity, "Version saved", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -241,8 +264,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun showReplaceDialog() {
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.VERTICAL
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val searchInput = EditText(this).apply { hint = "Search" }
         val replaceInput = EditText(this).apply { hint = "Replace with" }
         layout.addView(searchInput)
@@ -254,8 +276,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             .setPositiveButton("Replace All") { _, _ ->
                 val query = searchInput.text.toString()
                 val replacement = replaceInput.text.toString()
-                val text = editor.text.toString()
-                val newText = text.replace(query, replacement, ignoreCase = true)
+                val newText = editor.text.toString().replace(query, replacement, ignoreCase = true)
                 editor.setText(newText)
             }
             .setNegativeButton("Cancel", null)
@@ -267,6 +288,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             R.id.nav_new -> {
                 editor.setText("")
                 currentFileUri = null
+                currentFileExtension = ""
+                syntaxHighlighter.setFileExtension("")
                 Toast.makeText(this, "New file created", Toast.LENGTH_SHORT).show()
             }
             R.id.nav_open -> {
@@ -299,13 +322,5 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
-    }
-
-    override fun onBackPressed() {
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
-        } else {
-            super.onBackPressed()
-        }
     }
 }

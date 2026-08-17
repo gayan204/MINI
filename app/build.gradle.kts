@@ -57,11 +57,8 @@ dependencies {
     // Java Diff Utils
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
     
-    // Markwon
+    // Markwon (pulls com.atlassian.commonmark:0.13.0 transitively - same org.commonmark.* classes)
     implementation("io.noties.markwon:core:4.6.2")
-
-    // CommonMark - proper Markdown -> HTML conversion
-    implementation("org.commonmark:commonmark:0.21.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

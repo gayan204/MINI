@@ -42,6 +42,11 @@ class SyntaxHighlighter(private var fileExtension: String = "") : TextWatcher {
         fileExtension = ext.lowercase()
     }
 
+    /** Directly re-apply highlighting to current editable (safe alternative to re-assigning editor.text) */
+    fun rehighlight(editable: android.text.Editable?) {
+        afterTextChanged(editable)
+    }
+
     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
