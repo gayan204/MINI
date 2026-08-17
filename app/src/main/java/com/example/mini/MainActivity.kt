@@ -61,6 +61,16 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
+    private val versionHistoryLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val restoredContent = result.data?.getStringExtra("RESTORED_CONTENT")
+            if (restoredContent != null) {
+                editor.setText(restoredContent)
+                Toast.makeText(this, "Version restored", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -245,7 +255,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     val intent = Intent(this, VersionHistoryActivity::class.java).apply {
                         putExtra("FILE_URI", currentFileUri.toString())
                     }
-                    startActivity(intent)
+                    versionHistoryLauncher.launch(intent)
                 } else {
                     Toast.makeText(this, "Save the file first before viewing history.", Toast.LENGTH_SHORT).show()
                 }

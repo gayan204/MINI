@@ -1,7 +1,12 @@
 package com.example.mini.vcs
 
+import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.widget.ArrayAdapter
 import android.widget.ListView
 import android.widget.Toast
@@ -59,16 +64,45 @@ class VersionHistoryActivity : AppCompatActivity() {
     }
 
     private fun showDiffDialog(version: VersionInfo) {
-        // Just showing the patch string as diff for simplicity in this project scope
+        val formattedDiff = formatDiffText(version.patchString)
         AlertDialog.Builder(this)
             .setTitle("Diff: ${version.versionName}")
-            .setMessage(if (version.patchString.isBlank()) "Initial Version (No diff)" else version.patchString)
+            .setMessage(formattedDiff)
             .setPositiveButton("Restore") { _, _ ->
-                // To restore, we would ideally rebuild up to this version and save.
-                // Given the time, I'll pass a mock "restored" action or let the user know.
-                Toast.makeText(this, "Restore action triggered for ${version.versionName}", Toast.LENGTH_SHORT).show()
+                val restoredContent = versionControlManager.getVersionState(uri, version.timestamp)
+                if (restoredContent != null) {
+                    val resultIntent = Intent().apply {
+                        putExtra("RESTORED_CONTENT", restoredContent)
+                    }
+                    setResult(RESULT_OK, resultIntent)
+                    Toast.makeText(this, "Restore action triggered for ${version.versionName}", Toast.LENGTH_SHORT).show()
+                    finish()
+                } else {
+                    Toast.makeText(this, "Failed to restore version", Toast.LENGTH_SHORT).show()
+                }
             }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    private fun formatDiffText(patchString: String): CharSequence {
+        if (patchString.isBlank()) return "Initial Version (No diff)"
+        
+        val builder = SpannableStringBuilder()
+        val lines = patchString.split("\n")
+        
+        for (line in lines) {
+            val start = builder.length
+            builder.append(line).append("\n")
+            
+            val span = when {
+                line.startsWith("+") && !line.startsWith("+++") -> ForegroundColorSpan(Color.parseColor("#4CAF50")) // Green
+                line.startsWith("-") && !line.startsWith("---") -> ForegroundColorSpan(Color.parseColor("#F44336")) // Red
+                line.startsWith("@@") -> ForegroundColorSpan(Color.parseColor("#2196F3")) // Blue
+                else -> ForegroundColorSpan(Color.parseColor("#757575")) // Grey for context
+            }
+            builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return builder
     }
 }

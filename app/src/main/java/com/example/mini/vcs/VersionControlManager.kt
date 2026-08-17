@@ -154,4 +154,47 @@ class VersionControlManager(context: Context) {
 
         return versions
     }
+
+    fun getVersionState(uri: Uri, targetTimestamp: Long): String? {
+        val db = dbHelper.readableDatabase
+        
+        var fileId: Long = -1
+        var baseContent = ""
+        val cursorBase = db.query(
+            DatabaseContract.FileEntry.TABLE_NAME,
+            arrayOf(BaseColumns._ID, DatabaseContract.FileEntry.COLUMN_NAME_BASE_CONTENT),
+            "${DatabaseContract.FileEntry.COLUMN_NAME_URI} = ?",
+            arrayOf(uri.toString()),
+            null, null, null
+        )
+        if (cursorBase.moveToFirst()) {
+            fileId = cursorBase.getLong(cursorBase.getColumnIndexOrThrow(BaseColumns._ID))
+            baseContent = cursorBase.getString(cursorBase.getColumnIndexOrThrow(DatabaseContract.FileEntry.COLUMN_NAME_BASE_CONTENT))
+        }
+        cursorBase.close()
+
+        if (fileId == -1L) return null
+
+        val cursorPatches = db.query(
+            DatabaseContract.VersionEntry.TABLE_NAME,
+            arrayOf(DatabaseContract.VersionEntry.COLUMN_NAME_PATCH),
+            "${DatabaseContract.VersionEntry.COLUMN_NAME_FILE_ID} = ? AND ${DatabaseContract.VersionEntry.COLUMN_NAME_TIMESTAMP} <= ?",
+            arrayOf(fileId.toString(), targetTimestamp.toString()),
+            null, null, "${DatabaseContract.VersionEntry.COLUMN_NAME_TIMESTAMP} ASC"
+        )
+
+        var currentStateLines = baseContent.split("\n").toMutableList()
+
+        while (cursorPatches.moveToNext()) {
+            val patchString = cursorPatches.getString(cursorPatches.getColumnIndexOrThrow(DatabaseContract.VersionEntry.COLUMN_NAME_PATCH))
+            if (patchString.isNotEmpty()) {
+                val patchLines = patchString.split("\n")
+                val parsedPatch = UnifiedDiffUtils.parseUnifiedDiff(patchLines)
+                currentStateLines = DiffUtils.patch(currentStateLines, parsedPatch).toMutableList()
+            }
+        }
+        cursorPatches.close()
+
+        return currentStateLines.joinToString("\n")
+    }
 }
